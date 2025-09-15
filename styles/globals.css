@@ -181,6 +181,10 @@ a.link {
   font-size: 0.9rem;
 }
 
+.form-hint.warning {
+  color: #facc15;
+}
+
 .success {
   border-radius: 12px;
   background: rgba(20, 83, 45, 0.6);
@@ -457,6 +461,101 @@ a.link {
 
 .contribution-insight {
   border-left: 4px solid #facc15;
+}
+
+.contribution-statement {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 2px solid rgba(148, 163, 184, 0.3);
+  font-style: italic;
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.contribution-highlights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.contribution-badge {
+  background: rgba(148, 163, 184, 0.18);
+  color: #e2e8f0;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.contribution-badge.verdict-true {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+}
+
+.contribution-badge.verdict-false {
+  background: rgba(248, 113, 113, 0.2);
+  color: #f87171;
+}
+
+.contribution-badge.verdict-unverifiable {
+  background: rgba(250, 204, 21, 0.2);
+  color: #facc15;
+}
+
+.contribution-notes {
+  margin: 0;
+  color: rgba(226, 232, 240, 0.9);
+  line-height: 1.5;
+}
+
+.contribution-votes {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.vote-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.85rem;
+  background: rgba(15, 23, 42, 0.6);
+  color: rgba(226, 232, 240, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.vote-button:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.15);
+  border-color: rgba(148, 163, 184, 0.35);
+  color: #e2e8f0;
+}
+
+.vote-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.vote-button.upvote {
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #4ade80;
+}
+
+.vote-button.downvote {
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #f87171;
+}
+
+.vote-button.upvote:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.vote-button.downvote:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.15);
 }
 
 @media (max-width: 640px) {

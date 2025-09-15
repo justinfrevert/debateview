@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { addContribution } from '../../../../lib/roomsStore';
-import type { DebateContributionType } from '../../../../lib/roomsStore';
+import type { DebateContributionType, FactCheckVerdict } from '../../../../lib/roomsStore';
 
 const allowedContributionTypes: DebateContributionType[] = [
   'claim',
@@ -24,7 +24,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     return;
   }
 
-  const { contributor, type, description } = req.body ?? {};
+  const { contributorName, participantId, type, description, statement, verdict, fallacyType } = req.body ?? {};
 
   if (!type || typeof type !== 'string') {
     res.status(400).json({ error: 'A contribution type is required.' });
@@ -38,21 +38,24 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     return;
   }
 
-  if (!description || typeof description !== 'string') {
-    res.status(400).json({ error: 'A description is required.' });
-    return;
+  try {
+    const entry = addContribution(code, {
+      participantId: typeof participantId === 'string' ? participantId : undefined,
+      contributorName: typeof contributorName === 'string' ? contributorName : undefined,
+      type: normalizedType,
+      description: typeof description === 'string' ? description : undefined,
+      statement: typeof statement === 'string' ? statement : undefined,
+      verdict: typeof verdict === 'string' ? (verdict as FactCheckVerdict) : undefined,
+      fallacyType: typeof fallacyType === 'string' ? fallacyType : undefined,
+    });
+
+    if (!entry) {
+      res.status(404).json({ error: 'Room not found.' });
+      return;
+    }
+
+    res.status(201).json({ contribution: entry });
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
   }
-
-  const entry = addContribution(code, {
-    contributor: typeof contributor === 'string' && contributor.trim().length > 0 ? contributor.trim() : 'Anonymous',
-    type: normalizedType,
-    description: description.trim(),
-  });
-
-  if (!entry) {
-    res.status(404).json({ error: 'Room not found.' });
-    return;
-  }
-
-  res.status(201).json({ contribution: entry });
 }

@@ -3,10 +3,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
+import { LOGICAL_FALLACY_OPTIONS } from '@/lib/roomsStore';
 import type {
   DebateContributionType,
   DebateRoom,
   DebateStats,
+  FactCheckVerdict,
 } from '@/lib/roomsStore';
 
 const fetcher = async (url: string) => {
@@ -40,29 +42,64 @@ const statLabels: Record<keyof DebateStats, { label: string; description: string
   },
 };
 
-const contributionTypes: { value: DebateContributionType; label: string; helper: string }[] = [
-  { value: 'claim', label: 'Claim', helper: 'Summarize a new argument, stance, or narrative.' },
+const contributionTypes: {
+  value: DebateContributionType;
+  label: string;
+  helper: string;
+  requiresParticipant: boolean;
+  notesLabel: string;
+}[] = [
+  {
+    value: 'claim',
+    label: 'Claim',
+    helper: 'Summarize a new argument, stance, or narrative.',
+    requiresParticipant: true,
+    notesLabel: 'Claim summary',
+  },
   {
     value: 'fact-check',
     label: 'Fact Check',
     helper: 'Provide verification with sources, citations, or context.',
+    requiresParticipant: true,
+    notesLabel: 'Notes or evidence links (optional)',
   },
   {
     value: 'fallacy',
     label: 'Logical Fallacy',
     helper: 'Highlight reasoning errors such as strawman or false equivalence.',
+    requiresParticipant: true,
+    notesLabel: 'Notes or corrective guidance (optional)',
   },
   {
     value: 'evidence',
     label: 'Evidence',
     helper: 'Link to data, documents, or lived experience that backs a claim.',
+    requiresParticipant: false,
+    notesLabel: 'Evidence details or link',
   },
   {
     value: 'insight',
     label: 'Insight',
     helper: 'Add judging notes, audience sentiment, or strategic observations.',
+    requiresParticipant: false,
+    notesLabel: 'Insight or observation',
   },
 ];
+
+const contributionLabelMap = contributionTypes.reduce(
+  (lookup, option) => ({ ...lookup, [option.value]: option.label }),
+  {} as Record<DebateContributionType, string>,
+);
+
+const verdictLabels: Record<FactCheckVerdict, string> = {
+  true: 'True',
+  false: 'False',
+  unverifiable: 'Unverifiable',
+};
+
+function requiresParticipant(type: DebateContributionType): boolean {
+  return contributionTypes.find((option) => option.value === type)?.requiresParticipant ?? false;
+}
 
 function getEmbedUrl(watchUrl: string): string | null {
   try {
@@ -86,9 +123,13 @@ function getEmbedUrl(watchUrl: string): string | null {
 }
 
 type ContributionFormState = {
-  contributor: string;
   type: DebateContributionType;
+  participantId: string;
+  contributorName: string;
   description: string;
+  statement: string;
+  verdict: FactCheckVerdict;
+  fallacyType: string;
 };
 
 type ParticipantFormState = {
@@ -111,12 +152,18 @@ export default function RoomPage() {
   const [watchUpdating, setWatchUpdating] = useState(false);
 
   const [contributionForm, setContributionForm] = useState<ContributionFormState>({
-    contributor: '',
     type: 'claim',
+    participantId: '',
+    contributorName: '',
     description: '',
+    statement: '',
+    verdict: 'true',
+    fallacyType: LOGICAL_FALLACY_OPTIONS[0],
   });
   const [contributionError, setContributionError] = useState<string | null>(null);
   const [isSubmittingContribution, setIsSubmittingContribution] = useState(false);
+  const [voteError, setVoteError] = useState<string | null>(null);
+  const [votingContributionId, setVotingContributionId] = useState<string | null>(null);
 
   const [participantForm, setParticipantForm] = useState<ParticipantFormState>({
     name: '',
@@ -130,6 +177,24 @@ export default function RoomPage() {
     if (room) {
       setWatchUrl(room.watchUrl);
     }
+  }, [room]);
+
+  useEffect(() => {
+    if (!room) {
+      return;
+    }
+    setContributionForm((state) => {
+      if (!requiresParticipant(state.type)) {
+        return state;
+      }
+      if (room.participants.length === 0) {
+        return { ...state, participantId: '' };
+      }
+      if (room.participants.some((participant) => participant.id === state.participantId)) {
+        return state;
+      }
+      return { ...state, participantId: room.participants[0]?.id ?? '' };
+    });
   }, [room]);
 
   const participantsBySide = useMemo(() => {
@@ -164,18 +229,68 @@ export default function RoomPage() {
     event.preventDefault();
     if (!code) return;
     setContributionError(null);
+    setVoteError(null);
+    const requiresAttribution = requiresParticipant(contributionForm.type);
+    const participantOptions = room?.participants ?? [];
+
+    if (requiresAttribution && participantOptions.length === 0) {
+      setContributionError('Add participants before logging claims, fact checks, or fallacies.');
+      return;
+    }
+
+    if (requiresAttribution && !contributionForm.participantId) {
+      setContributionError('Select a participant to attribute this entry.');
+      return;
+    }
+
+    const trimmedDescription = contributionForm.description.trim();
+    const trimmedStatement = contributionForm.statement.trim();
+
+    if (
+      (contributionForm.type === 'fact-check' || contributionForm.type === 'fallacy') &&
+      trimmedStatement.length === 0
+    ) {
+      setContributionError('Please paraphrase or quote the relevant statement.');
+      return;
+    }
+
     setIsSubmittingContribution(true);
     try {
+      const payload: Record<string, unknown> = {
+        type: contributionForm.type,
+        description: trimmedDescription,
+      };
+
+      if (requiresAttribution) {
+        payload.participantId = contributionForm.participantId;
+      } else if (contributionForm.contributorName.trim().length > 0) {
+        payload.contributorName = contributionForm.contributorName.trim();
+      }
+
+      if (contributionForm.type === 'fact-check') {
+        payload.statement = trimmedStatement;
+        payload.verdict = contributionForm.verdict;
+      }
+
+      if (contributionForm.type === 'fallacy') {
+        payload.statement = trimmedStatement;
+        payload.fallacyType = contributionForm.fallacyType;
+      }
+
       const response = await fetch(`/api/rooms/${code}/contributions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(contributionForm),
+        body: JSON.stringify(payload),
       });
       if (!response.ok) {
         const payload = await response.json();
         throw new Error(payload.error ?? 'Unable to record contribution');
       }
-      setContributionForm({ contributor: '', type: contributionForm.type, description: '' });
+      setContributionForm((state) => ({
+        ...state,
+        description: '',
+        statement: '',
+      }));
       mutate();
     } catch (submissionError) {
       setContributionError((submissionError as Error).message);
@@ -208,6 +323,28 @@ export default function RoomPage() {
     }
   };
 
+  const handleContributionVote = async (contributionId: string, direction: 'up' | 'down') => {
+    if (!code) return;
+    setVoteError(null);
+    setVotingContributionId(contributionId);
+    try {
+      const response = await fetch(`/api/rooms/${code}/contributions/${contributionId}/vote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ direction }),
+      });
+      if (!response.ok) {
+        const payload = await response.json();
+        throw new Error(payload.error ?? 'Unable to record vote');
+      }
+      await mutate();
+    } catch (submissionError) {
+      setVoteError((submissionError as Error).message);
+    } finally {
+      setVotingContributionId(null);
+    }
+  };
+
   const handleWatchUrlUpdate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!code) return;
@@ -233,6 +370,20 @@ export default function RoomPage() {
   };
 
   const embedUrl = room ? getEmbedUrl(room.watchUrl) : null;
+  const selectedContributionMeta =
+    contributionTypes.find((option) => option.value === contributionForm.type) ?? contributionTypes[0];
+  const needsParticipant = requiresParticipant(contributionForm.type);
+  const lacksParticipantOptions = needsParticipant && (room?.participants.length ?? 0) === 0;
+  const notesPlaceholder =
+    contributionForm.type === 'fact-check'
+      ? 'Add context or cite sources backing your verification'
+      : contributionForm.type === 'fallacy'
+      ? 'Explain the impact or provide corrective guidance'
+      : 'Summarize the contribution or link to evidence';
+  const statementPlaceholder =
+    contributionForm.type === 'fact-check'
+      ? 'Paraphrase or quote the claim under review'
+      : 'Paraphrase or quote the fallacious statement';
 
   if (error) {
     return (
@@ -404,24 +555,75 @@ export default function RoomPage() {
             </p>
             <form className="form" onSubmit={handleContributionSubmit}>
               <div className="form-row">
-                <label>
-                  Contributor
-                  <input
-                    type="text"
-                    value={contributionForm.contributor}
-                    onChange={(event) =>
-                      setContributionForm((state) => ({ ...state, contributor: event.target.value }))
-                    }
-                    placeholder="Name or alias"
-                  />
-                </label>
+                {needsParticipant ? (
+                  <label>
+                    Speaker
+                    <select
+                      value={contributionForm.participantId}
+                      onChange={(event) =>
+                        setContributionForm((state) => ({ ...state, participantId: event.target.value }))
+                      }
+                      disabled={lacksParticipantOptions}
+                      required
+                    >
+                      {lacksParticipantOptions ? (
+                        <option value="">No participants yet</option>
+                      ) : (
+                        room.participants.map((participant) => (
+                          <option key={participant.id} value={participant.id}>
+                            {participant.name}
+                            {participant.role ? ` • ${participant.role}` : ''}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </label>
+                ) : (
+                  <label>
+                    Contributor
+                    <input
+                      type="text"
+                      value={contributionForm.contributorName}
+                      onChange={(event) =>
+                        setContributionForm((state) => ({ ...state, contributorName: event.target.value }))
+                      }
+                      placeholder="Name or alias"
+                    />
+                  </label>
+                )}
                 <label>
                   Type
                   <select
                     value={contributionForm.type}
-                    onChange={(event) =>
-                      setContributionForm((state) => ({ ...state, type: event.target.value as DebateContributionType }))
-                    }
+                    onChange={(event) => {
+                      const nextType = event.target.value as DebateContributionType;
+                      setContributionForm((state) => {
+                        if (state.type === nextType) {
+                          return state;
+                        }
+                        const next: ContributionFormState = {
+                          ...state,
+                          type: nextType,
+                        };
+                        if (requiresParticipant(nextType)) {
+                          if (room.participants.length > 0) {
+                            if (!room.participants.some((participant) => participant.id === state.participantId)) {
+                              next.participantId = room.participants[0]?.id ?? '';
+                            }
+                          } else {
+                            next.participantId = '';
+                          }
+                        }
+                        if (nextType === 'fact-check') {
+                          next.verdict = state.verdict;
+                        }
+                        if (nextType === 'fallacy' && !LOGICAL_FALLACY_OPTIONS.includes(state.fallacyType)) {
+                          next.fallacyType = LOGICAL_FALLACY_OPTIONS[0];
+                        }
+                        next.statement = '';
+                        return next;
+                      });
+                    }}
                   >
                     {contributionTypes.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -431,39 +633,138 @@ export default function RoomPage() {
                   </select>
                 </label>
               </div>
+              {needsParticipant && lacksParticipantOptions ? (
+                <p className="form-hint warning">
+                  Add participants before logging claims, fact checks, or fallacies.
+                </p>
+              ) : null}
+              {(contributionForm.type === 'fact-check' || contributionForm.type === 'fallacy') && (
+                <label>
+                  {contributionForm.type === 'fact-check'
+                    ? 'Claim or statement under review'
+                    : 'Statement containing the fallacy'}
+                  <textarea
+                    value={contributionForm.statement}
+                    onChange={(event) =>
+                      setContributionForm((state) => ({ ...state, statement: event.target.value }))
+                    }
+                    placeholder={statementPlaceholder}
+                    rows={2}
+                    required
+                  />
+                </label>
+              )}
+              {contributionForm.type === 'fact-check' ? (
+                <label>
+                  Verdict
+                  <select
+                    value={contributionForm.verdict}
+                    onChange={(event) =>
+                      setContributionForm((state) => ({
+                        ...state,
+                        verdict: event.target.value as FactCheckVerdict,
+                      }))
+                    }
+                  >
+                    <option value="true">True</option>
+                    <option value="false">False</option>
+                    <option value="unverifiable">Unverifiable</option>
+                  </select>
+                </label>
+              ) : null}
+              {contributionForm.type === 'fallacy' ? (
+                <label>
+                  Logical fallacy
+                  <select
+                    value={contributionForm.fallacyType}
+                    onChange={(event) =>
+                      setContributionForm((state) => ({ ...state, fallacyType: event.target.value }))
+                    }
+                  >
+                    {LOGICAL_FALLACY_OPTIONS.map((fallacy) => (
+                      <option key={fallacy} value={fallacy}>
+                        {fallacy}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <label>
-                Notes
+                {selectedContributionMeta.notesLabel}
                 <textarea
                   value={contributionForm.description}
                   onChange={(event) =>
                     setContributionForm((state) => ({ ...state, description: event.target.value }))
                   }
-                  placeholder="Summarize the contribution or link to evidence"
+                  placeholder={notesPlaceholder}
                   rows={3}
-                  required
+                  required={!(contributionForm.type === 'fact-check' || contributionForm.type === 'fallacy')}
                 />
               </label>
-              <p className="form-hint">
-                {contributionTypes.find((option) => option.value === contributionForm.type)?.helper}
-              </p>
+              <p className="form-hint">{selectedContributionMeta.helper}</p>
               {contributionError ? <p className="form-error">{contributionError}</p> : null}
-              <button type="submit" className="primary" disabled={isSubmittingContribution}>
+              <button
+                type="submit"
+                className="primary"
+                disabled={isSubmittingContribution || lacksParticipantOptions}
+              >
                 {isSubmittingContribution ? 'Logging…' : 'Record contribution'}
               </button>
             </form>
+            {voteError ? <p className="form-error">{voteError}</p> : null}
             <ul className="contribution-list">
-              {room.contributions.map((entry) => (
-                <li key={entry.id} className={`contribution contribution-${entry.type}`}>
-                  <div className="contribution-meta">
-                    <span className="tag">{entry.type}</span>
-                    <span>{entry.contributor}</span>
-                    <time dateTime={entry.createdAt}>
-                      {new Date(entry.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </time>
-                  </div>
-                  <p>{entry.description}</p>
-                </li>
-              ))}
+              {room.contributions.map((entry) => {
+                const typeLabel = contributionLabelMap[entry.type] ?? entry.type;
+                const showVerdict = entry.type === 'fact-check' && entry.verdict;
+                const showFallacy = entry.type === 'fallacy' && entry.fallacyType;
+                const isVoteable = entry.type === 'fact-check' || entry.type === 'fallacy';
+                const isVoting = votingContributionId === entry.id;
+                return (
+                  <li key={entry.id} className={`contribution contribution-${entry.type}`}>
+                    <div className="contribution-meta">
+                      <span className="tag">{typeLabel}</span>
+                      <span>{entry.contributor}</span>
+                      <time dateTime={entry.createdAt}>
+                        {new Date(entry.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </time>
+                    </div>
+                    {entry.statement ? <p className="contribution-statement">“{entry.statement}”</p> : null}
+                    {showVerdict || showFallacy ? (
+                      <div className="contribution-highlights">
+                        {showVerdict && entry.verdict ? (
+                          <span className={`contribution-badge verdict-${entry.verdict}`}>
+                            Verdict: {verdictLabels[entry.verdict]}
+                          </span>
+                        ) : null}
+                        {showFallacy ? <span className="contribution-badge">{entry.fallacyType}</span> : null}
+                      </div>
+                    ) : null}
+                    {entry.description ? <p className="contribution-notes">{entry.description}</p> : null}
+                    {isVoteable ? (
+                      <div className="contribution-votes">
+                        <button
+                          type="button"
+                          className="vote-button upvote"
+                          onClick={() => handleContributionVote(entry.id, 'up')}
+                          disabled={isVoting}
+                          aria-label={`Upvote ${typeLabel} from ${entry.contributor}`}
+                        >
+                          ▲ {entry.upvotes}
+                        </button>
+                        <button
+                          type="button"
+                          className="vote-button downvote"
+                          onClick={() => handleContributionVote(entry.id, 'down')}
+                          disabled={isVoting}
+                          aria-label={`Downvote ${typeLabel} from ${entry.contributor}`}
+                        >
+                          ▼ {entry.downvotes}
+                        </button>
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
               {room.contributions.length === 0 ? <li>No contributions yet. Be the first!</li> : null}
             </ul>
           </article>
