@@ -43,7 +43,17 @@ export interface DebateRoom {
 
 const codeGenerator = customAlphabet('23456789ABCDEFGHJKLMNPQRSTUVWXYZ', 6);
 
-const rooms = new Map<string, DebateRoom>();
+declare global {
+  // eslint-disable-next-line no-var
+  var __debateRooms: Map<string, DebateRoom> | undefined;
+}
+
+const rooms: Map<string, DebateRoom> =
+  globalThis.__debateRooms ?? new Map<string, DebateRoom>();
+
+if (!globalThis.__debateRooms) {
+  globalThis.__debateRooms = rooms;
+}
 
 const defaultStats: DebateStats = {
   claimsIdentified: 0,
