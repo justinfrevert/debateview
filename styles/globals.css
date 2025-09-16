@@ -367,11 +367,6 @@ a.link {
   color: #facc15;
 }
 
-.stat-controls {
-  display: flex;
-  gap: 10px;
-}
-
 .grid.two-columns {
   display: grid;
   gap: 24px;

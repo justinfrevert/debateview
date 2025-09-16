@@ -87,6 +87,14 @@ const defaultStats: DebateStats = {
   impactHighlights: 0,
 };
 
+const statKeyByContributionType: Partial<Record<DebateContributionType, keyof DebateStats>> = {
+  claim: 'claimsIdentified',
+  'fact-check': 'claimsFactChecked',
+  fallacy: 'logicalFallacies',
+  evidence: 'evidenceProvided',
+  insight: 'impactHighlights',
+};
+
 function createStats(): DebateStats {
   return { ...defaultStats };
 }
@@ -148,23 +156,6 @@ export function updateRoom(
     room.format = updates.format;
   }
   return room;
-}
-
-type StatUpdates = Partial<Record<keyof DebateStats, number>>;
-
-export function incrementStats(code: string, updates: StatUpdates): DebateStats | undefined {
-  const room = rooms.get(code);
-  if (!room) {
-    return undefined;
-  }
-  Object.entries(updates).forEach(([key, delta]) => {
-    if (delta === undefined) return;
-    const statKey = key as keyof DebateStats;
-    const current = room.stats[statKey] ?? 0;
-    const nextValue = current + delta;
-    room.stats[statKey] = nextValue < 0 ? 0 : nextValue;
-  });
-  return room.stats;
 }
 
 export function addContribution(
@@ -238,6 +229,10 @@ export function addContribution(
     createdAt: new Date().toISOString(),
   };
   room.contributions.unshift(entry);
+  const statKey = statKeyByContributionType[entry.type];
+  if (statKey) {
+    room.stats[statKey] += 1;
+  }
   return entry;
 }
 
@@ -294,13 +289,24 @@ export function seedDemoRoom(): DebateRoom {
     format: '2 vs 2',
   });
   const ava = addParticipant(demo.code, { name: 'Ava (Pro)', side: 'Pro', role: 'Lead Debater' });
-  addParticipant(demo.code, { name: 'Liam (Pro)', side: 'Pro', role: 'Researcher' });
-  addParticipant(demo.code, { name: 'Noah (Con)', side: 'Con', role: 'Lead Debater' });
+  const liam = addParticipant(demo.code, { name: 'Liam (Pro)', side: 'Pro', role: 'Researcher' });
+  const noah = addParticipant(demo.code, { name: 'Noah (Con)', side: 'Con', role: 'Lead Debater' });
   const mia = addParticipant(demo.code, { name: 'Mia (Con)', side: 'Con', role: 'Researcher' });
+
   addContribution(demo.code, {
     participantId: ava?.id,
     type: 'claim',
     description: 'AI surveillance erodes civil liberties if left unregulated.',
+  });
+  addContribution(demo.code, {
+    participantId: noah?.id,
+    type: 'claim',
+    description: 'Strict regulation could stall lifesaving AI research and development.',
+  });
+  addContribution(demo.code, {
+    participantId: ava?.id,
+    type: 'claim',
+    description: 'Clear guardrails create trust and unlock responsible innovation.',
   });
   addContribution(demo.code, {
     participantId: mia?.id,
@@ -309,11 +315,27 @@ export function seedDemoRoom(): DebateRoom {
     verdict: 'true',
     description: 'Linked to 2023 EU report on AI oversight readiness.',
   });
-  incrementStats(demo.code, {
-    claimsIdentified: 3,
-    claimsFactChecked: 1,
-    logicalFallacies: 1,
-    evidenceProvided: 2,
+  addContribution(demo.code, {
+    participantId: ava?.id,
+    type: 'fallacy',
+    statement: 'Con side warned of a dystopian future without citing concrete evidence.',
+    fallacyType: 'Appeal to Emotion',
+    description: 'Highlights emotional appeals that lack empirical support.',
+  });
+  addContribution(demo.code, {
+    participantId: liam?.id,
+    type: 'evidence',
+    description: 'Shared Pew Research polling on public support for AI oversight.',
+  });
+  addContribution(demo.code, {
+    contributorName: 'Audience Analyst',
+    type: 'evidence',
+    description: 'Linked MIT study measuring the cost of AI audit programs.',
+  });
+  addContribution(demo.code, {
+    contributorName: 'Moderator Team',
+    type: 'insight',
+    description: 'Impact highlight: bipartisan appetite for transparency safeguards.',
   });
   return demo;
 }

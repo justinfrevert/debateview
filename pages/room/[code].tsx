@@ -212,19 +212,6 @@ export default function RoomPage() {
     return Array.from(grouped.entries()).map(([side, members]) => ({ side, members }));
   }, [room]);
 
-  const handleStatUpdate = async (key: keyof DebateStats, delta: number) => {
-    if (!code) return;
-    const response = await fetch(`/api/rooms/${code}/stats`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ [key]: delta }),
-    });
-    if (!response.ok) {
-      console.error('Failed to update stats');
-    }
-    mutate();
-  };
-
   const handleContributionSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!code) return;
@@ -471,20 +458,15 @@ export default function RoomPage() {
 
         <section className="card stats-card">
           <h2>Debate stats</h2>
+          <p className="card-subtitle">
+            Totals update automatically as complete contributions are logged.
+          </p>
           <div className="stats-grid">
             {(Object.keys(statLabels) as (keyof DebateStats)[]).map((key) => (
               <div key={key} className="stat">
                 <div className="stat-value">{room.stats[key]}</div>
                 <h3>{statLabels[key].label}</h3>
                 <p>{statLabels[key].description}</p>
-                <div className="stat-controls">
-                  <button onClick={() => handleStatUpdate(key, -1)} className="secondary">
-                    −1
-                  </button>
-                  <button onClick={() => handleStatUpdate(key, 1)} className="primary">
-                    +1
-                  </button>
-                </div>
               </div>
             ))}
           </div>
